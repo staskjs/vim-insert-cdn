@@ -23,4 +23,4 @@ package_name is a npm-like notion. You can write `:InsertScriptTag jquery@1.10.0
 
 ## API
 
-Plugin uses [jsdelivr.com](jsdelivr.com) API to get information about packages.
+Plugin uses [jsdelivr.com](http://jsdelivr.com) API to get information about packages.
