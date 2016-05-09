@@ -1,29 +1,65 @@
 " Get cdn url for specified package name and version
 function! GetCdnUrl(name, version)
-	let api_url = 'http://api.jsdelivr.com/v1/jsdelivr/libraries/' . a:name . '/' . a:version . '\?fields\=mainfile'
+	let api_url = 'https://jsdelivr-api.herokuapp.com/v2/jsdelivr/library/' . a:name
+
+	" parse json command
+	let parse_json = "/usr/bin/env sh JSON.sh -b"
+	
 	" awk command for extracting mainfile and removing double quotes from it
 	let awk_get_filename = '{gsub("\"", "", $2); print $2}'
-	let awk_get_first_line = 'END{print}'
-	let greps = "grep .min | grep -v .map"
 
-	let cmd = "curl -s " . api_url . " | /usr/bin/env sh JSON.sh -b | awk '" . awk_get_filename . "'" . " | " . greps
-	
-	" get json from api with curl, parse it and extract mainfile field
-	if (a:version != '')
-		let mainfile = system(cmd . " | awk '" . awk_get_first_line . "'")
-		let ver = a:version
+	" awk command to get first and last line of input
+	let awk_get_first_and_last_line = 'NR==1;END{print}'
+
+	" command to get parsed json from url
+	let get_json_cmd = "curl -s " .
+		\api_url .
+		\" | " . parse_json
+
+	" store parsed json in variable
+	let parsed_json = system(get_json_cmd)
+
+	" if version of package is not specified, we get the latest version from
+	" parsed json (latest version is first in the array of versions)
+	if (a:version == '')
+		let grep_versions = 'grep \"versions\",0'
+		let get_version_cmd = "echo '" . parsed_json . "' | " . grep_versions . " | awk '" . awk_get_filename . "'"
+		" remove new lines from version
+		let ver = substitute(system(get_version_cmd), '\n\+', '', '')
 	else
-		let mainfile = system(cmd)
-		let ver = 'latest'
+		let ver = a:version
 	endif
 
+	" if no version found, return nothing
+	if (ver == '')
+		echo "Cannot found js library with name " . a:name . " and latest version"
+		return ''
+	endif
+
+	let grep = 'grep \"assets\",\"' . ver . '\"'
+	let cmd =
+		\"echo '" . parsed_json .
+		\"' | " . grep .
+		\" | awk '" .
+		\awk_get_filename .
+		\"' | awk '" .
+		\awk_get_first_and_last_line .
+		\"'"
+
+	" get json from api with curl, parse it and extract baseUrl and mainfile field
+	let data = system(cmd)
+
 	let error_message = "Cannot found js library with name " . a:name . " and " . ver . " version"
-	if (mainfile == '')
+	if (len(data) == 1 || len(data) == 0)
 		echo error_message
 		return ''
 	endif
 
-	return 'https://cdn.jsdelivr.net/' . a:name . '/' . ver . '/' . mainfile
+	" split resulting data by new line
+	" first line contains baseUrl, second contains mainfile
+	let arr = split(data, '\n')
+	let url = arr[0] . arr[1]
+	return url
 endfunction
 
 " Insert script tag with cdn url under cursor position
@@ -35,6 +71,8 @@ function! InsertScriptTag(vname)
 		let ver = ''
 	endif
 	let name = vname[0]
+
+	" remove new lines from returned url, if any
 	let url = substitute(GetCdnUrl(name, ver), '\n\+$', '', '')
 	if (url != '')
 		let script_tag = '<script type="text/javascript" src="' . url . '"></script>'
@@ -42,4 +80,3 @@ function! InsertScriptTag(vname)
 	endif
 endfunction
 
-command! -nargs=1 InsertScriptTag call InsertScriptTag(<f-args>)
